@@ -123,9 +123,9 @@ void EmitUnwindData(PlatformEmbeddedFileWriterWin* w,
       // entry because the return address can be retrieved from [rsp].
       if (unwind_infos[builtin_index].is_leaf_function()) continue;
 
-      uint64_t builtin_start_offset = blob->InstructionStartOfBuiltin(builtin) -
+      uint64_t builtin_start_offset = blob->InstructionStartOf(builtin) -
                                       reinterpret_cast<Address>(blob->code());
-      uint32_t builtin_size = blob->InstructionSizeOfBuiltin(builtin);
+      uint32_t builtin_size = blob->InstructionSizeOf(builtin);
 
       const std::vector<int>& xdata_desc =
           unwind_infos[builtin_index].fp_offsets();
@@ -206,9 +206,9 @@ void EmitUnwindData(PlatformEmbeddedFileWriterWin* w,
     const int builtin_index = static_cast<int>(builtin);
     if (unwind_infos[builtin_index].is_leaf_function()) continue;
 
-    uint64_t builtin_start_offset = blob->InstructionStartOfBuiltin(builtin) -
+    uint64_t builtin_start_offset = blob->InstructionStartOf(builtin) -
                                     reinterpret_cast<Address>(blob->code());
-    uint32_t builtin_size = blob->InstructionSizeOfBuiltin(builtin);
+    uint32_t builtin_size = blob->InstructionSizeOf(builtin);
 
     const std::vector<int>& xdata_desc =
         unwind_infos[builtin_index].fp_offsets();
@@ -497,10 +497,6 @@ void PlatformEmbeddedFileWriterWin::SourceInfo(int fileid, const char* filename,
 // TODO(mmarchini): investigate emitting size annotations for Windows
 void PlatformEmbeddedFileWriterWin::DeclareFunctionBegin(const char* name,
                                                          uint32_t size) {
-  if (ENABLE_CONTROL_FLOW_INTEGRITY_BOOL) {
-    DeclareSymbolGlobal(name);
-  }
-
   if (target_arch_ == EmbeddedTargetArch::kArm64) {
     fprintf(fp_, "%s%s FUNCTION\n", SYMBOL_PREFIX, name);
 
@@ -655,7 +651,11 @@ void PlatformEmbeddedFileWriterWin::DeclareFunctionBegin(const char* name,
                                                          uint32_t size) {
   DeclareLabel(name);
 
-  if (target_arch_ == EmbeddedTargetArch::kArm64) {
+  if (target_arch_ == EmbeddedTargetArch::kArm64
+#if V8_ENABLE_DRUMBRAKE
+      || IsDrumBrakeInstructionHandler(name)
+#endif  // V8_ENABLE_DRUMBRAKE
+  ) {
     // Windows ARM64 assembly is in GAS syntax, but ".type" is invalid directive
     // in PE/COFF for Windows.
     DeclareSymbolGlobal(name);

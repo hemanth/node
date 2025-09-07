@@ -1,13 +1,13 @@
 #pragma once
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-#if HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
+
 #include <memory_tracker.h>
 #include <ngtcp2/ngtcp2.h>
 #include <string>
+#include "defs.h"
 
-namespace node {
-namespace quic {
+namespace node::quic {
 
 // CIDS are used to identify endpoints participating in a QUIC session.
 // Once created, CID instances are immutable.
@@ -50,7 +50,8 @@ class CID final : public MemoryRetainer {
   explicit CID(const ngtcp2_cid* cid);
 
   CID(const CID& other);
-  CID(CID&& other) = delete;
+  CID& operator=(const CID& other);
+  DISALLOW_MOVE(CID)
 
   struct Hash final {
     size_t operator()(const CID& cid) const;
@@ -67,6 +68,8 @@ class CID final : public MemoryRetainer {
   operator bool() const;
   size_t length() const;
 
+  // Returns a hex-encoded string representation of the CID useful
+  // for debugging.
   std::string ToString() const;
 
   SET_NO_MEMORY_INFO()
@@ -74,7 +77,7 @@ class CID final : public MemoryRetainer {
   SET_SELF_SIZE(CID)
 
   template <typename T>
-  using Map = std::unordered_map<CID, T, CID::Hash>;
+  using Map = std::unordered_map<const CID, T, CID::Hash>;
 
   // A CID::Factory, as the name suggests, is used to create new CIDs.
   // Per https://datatracker.ietf.org/doc/draft-ietf-quic-load-balancers/, QUIC
@@ -84,14 +87,16 @@ class CID final : public MemoryRetainer {
   // but will allow user code to provide their own CID::Factory implementation.
   class Factory;
 
-  static CID kInvalid;
+  static const CID kInvalid;
 
- private:
   // The default constructor creates an empty, zero-length CID.
   // Zero-length CIDs are not usable. We use them as a placeholder
-  // for a missing or empty CID value.
+  // for a missing or empty CID value. This is public only because
+  // it is required for the CID::Map implementation. It should not
+  // be used directly. Use kInvalid instead.
   CID();
 
+ private:
   ngtcp2_cid cid_;
   const ngtcp2_cid* ptr_;
 
@@ -104,13 +109,12 @@ class CID::Factory {
 
   // Generate a new CID. The length_hint must be between CID::kMinLength
   // and CID::kMaxLength. The implementation can choose to ignore the length.
-  virtual CID Generate(size_t length_hint = CID::kMaxLength) const = 0;
+  virtual const CID Generate(size_t length_hint = CID::kMaxLength) const = 0;
 
   // Generate a new CID into the given ngtcp2_cid. This variation of
-  // Generate should be used far less commonly. It is provided largely
-  // for a couple of internal cases.
-  virtual void GenerateInto(ngtcp2_cid* cid,
-                            size_t length_hint = CID::kMaxLength) const = 0;
+  // Generate should be used far less commonly.
+  virtual const CID GenerateInto(
+      ngtcp2_cid* cid, size_t length_hint = CID::kMaxLength) const = 0;
 
   // The default random CID generator instance.
   static const Factory& random();
@@ -119,8 +123,6 @@ class CID::Factory {
   // of CID::Factory that implement the QUIC Load Balancers spec.
 };
 
-}  // namespace quic
-}  // namespace node
+}  // namespace node::quic
 
-#endif  // HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

@@ -26,6 +26,7 @@ function getBrowserProperties() {
 /**
  * Return one of three expected values
  * https://github.com/web-platform-tests/wpt/blob/1c6ff12/tools/wptrunner/wptrunner/tests/test_update.py#L953-L958
+ * @returns {'linux'|'mac'|'win'}
  */
 function getOs() {
   switch (os.type()) {
@@ -58,46 +59,74 @@ function codeUnitStr(char) {
   return 'U+' + char.charCodeAt(0).toString(16);
 }
 
+class ReportResult {
+  #startTime;
+
+  constructor(name) {
+    this.test = name;
+    this.status = 'OK';
+    this.subtests = [];
+    this.#startTime = Date.now();
+  }
+
+  addSubtest(name, status, message) {
+    const subtest = {
+      status,
+      // https://github.com/web-platform-tests/wpt/blob/b24eedd/resources/testharness.js#L3722
+      name: sanitizeUnpairedSurrogates(name),
+    };
+    if (message) {
+      // https://github.com/web-platform-tests/wpt/blob/b24eedd/resources/testharness.js#L4506
+      subtest.message = sanitizeUnpairedSurrogates(message);
+    }
+    this.subtests.push(subtest);
+    return subtest;
+  }
+
+  finish(status) {
+    this.status = status ?? 'OK';
+    this.duration = Date.now() - this.#startTime;
+  }
+}
+
+// Generates a report that can be uploaded to wpt.fyi.
+// Checkout https://github.com/web-platform-tests/wpt.fyi/tree/main/api#results-creation
+// for more details.
 class WPTReport {
   constructor(path) {
     this.filename = `report-${path.replaceAll('/', '-')}.json`;
-    this.results = [];
+    /** @type {Map<string, ReportResult>} */
+    this.results = new Map();
     this.time_start = Date.now();
   }
 
-  addResult(name, status) {
-    const result = {
-      test: name,
-      status,
-      subtests: [],
-      addSubtest(name, status, message) {
-        const subtest = {
-          status,
-          // https://github.com/web-platform-tests/wpt/blob/b24eedd/resources/testharness.js#L3722
-          name: sanitizeUnpairedSurrogates(name),
-        };
-        if (message) {
-          // https://github.com/web-platform-tests/wpt/blob/b24eedd/resources/testharness.js#L4506
-          subtest.message = sanitizeUnpairedSurrogates(message);
-        }
-        this.subtests.push(subtest);
-        return subtest;
-      },
-    };
-    this.results.push(result);
+  /**
+   * Get or create a ReportResult for a test spec.
+   * @param {WPTTestSpec} spec
+   * @returns {ReportResult}
+   */
+  getResult(spec) {
+    const name = `/${spec.getRelativePath()}${spec.variant}`;
+    if (this.results.has(name)) {
+      return this.results.get(name);
+    }
+    const result = new ReportResult(name);
+    this.results.set(name, result);
     return result;
   }
 
+  /**
+   * @returns {void}
+   */
   write() {
     this.time_end = Date.now();
-    this.results = this.results.filter((result) => {
-      return result.status === 'SKIP' || result.subtests.length !== 0;
-    }).map((result) => {
-      const url = new URL(result.test, 'http://wpt');
-      url.pathname = url.pathname.replace(/\.js$/, '.html');
-      result.test = url.href.slice(url.origin.length);
-      return result;
-    });
+    const results = Array.from(this.results.values())
+      .map((result) => {
+        const url = new URL(result.test, 'http://wpt');
+        url.pathname = url.pathname.replace(/\.js$/, '.html');
+        result.test = url.href.slice(url.origin.length);
+        return result;
+      });
 
     /**
      * Return required and some optional properties
@@ -110,7 +139,12 @@ class WPTReport {
       os: getOs(),
     };
 
-    fs.writeFileSync(`out/wpt/${this.filename}`, JSON.stringify(this));
+    fs.writeFileSync(`out/wpt/${this.filename}`, JSON.stringify({
+      time_start: this.time_start,
+      time_end: this.time_end,
+      run_info: this.run_info,
+      results: results,
+    }));
   }
 }
 
@@ -162,8 +196,9 @@ class ResourceLoader {
   /**
    * Load a resource in test/fixtures/wpt specified with a URL
    * @param {string} from the path of the file loading this resource,
-   *                      relative to the WPT folder.
+   *   relative to the WPT folder.
    * @param {string} url the url of the resource being loaded.
+   * @returns {string}
    */
   read(from, url) {
     const file = this.toRealFilePath(from, url);
@@ -173,14 +208,21 @@ class ResourceLoader {
   /**
    * Load a resource in test/fixtures/wpt specified with a URL
    * @param {string} from the path of the file loading this resource,
-   *                      relative to the WPT folder.
+   *   relative to the WPT folder.
    * @param {string} url the url of the resource being loaded.
+   * @returns {Promise<{
+   *   ok: string,
+   *   arrayBuffer: function(): Buffer,
+   *   json: function(): object,
+   *   text: function(): string,
+   * }>}
    */
   async readAsFetch(from, url) {
     const file = this.toRealFilePath(from, url);
     const data = await fsPromises.readFile(file);
     return {
       ok: true,
+      arrayBuffer() { return data.buffer; },
       json() { return JSON.parse(data.toString()); },
       text() { return data.toString(); },
     };
@@ -254,9 +296,9 @@ class WPTTestSpec {
 
   /**
    * @param {string} mod name of the WPT module, e.g.
-   *                     'html/webappapis/microtask-queuing'
+   *   'html/webappapis/microtask-queuing'
    * @param {string} filename path of the test, relative to mod, e.g.
-   *                          'test.any.js'
+   *   'test.any.js'
    * @param {StatusRule[]} rules
    * @param {string} variant test file variant
    */
@@ -296,6 +338,7 @@ class WPTTestSpec {
    * @param {string} mod
    * @param {string} filename
    * @param {StatusRule[]} rules
+   * @returns {ReturnType<WPTTestSpec['getMeta']>[]}
    */
   static from(mod, filename, rules) {
     const spec = new WPTTestSpec(mod, filename, rules);
@@ -353,7 +396,7 @@ const kIntlRequirement = {
   // TODO(joyeecheung): we may need to deal with --with-intl=system-icu
 };
 
-class IntlRequirement {
+class BuildRequirement {
   constructor() {
     this.currentIntl = kIntlRequirement.none;
     if (process.config.variables.v8_enable_i18n_support === 0) {
@@ -366,6 +409,9 @@ class IntlRequirement {
     } else {
       this.currentIntl = kIntlRequirement.full;
     }
+    // Not using common.hasCrypto because of the global leak checks
+    this.hasCrypto = Boolean(process.versions.openssl) &&
+      !process.env.NODE_SKIP_CRYPTO;
   }
 
   /**
@@ -380,11 +426,14 @@ class IntlRequirement {
     if (requires.has('small-icu') && current < kIntlRequirement.small) {
       return 'small-icu';
     }
+    if (requires.has('crypto') && !this.hasCrypto) {
+      return 'crypto';
+    }
     return false;
   }
 }
 
-const intlRequirements = new IntlRequirement();
+const buildRequirements = new BuildRequirement();
 
 class StatusLoader {
   /**
@@ -400,6 +449,7 @@ class StatusLoader {
   /**
    * Grep for all .*.js file recursively in a directory.
    * @param {string} dir
+   * @returns {any[]}
    */
   grep(dir) {
     let result = [];
@@ -411,7 +461,7 @@ class StatusLoader {
         const list = this.grep(filepath);
         result = result.concat(list);
       } else {
-        if (!(/\.\w+\.js$/.test(filepath)) || filepath.endsWith('.helper.js')) {
+        if (!(/\.\w+\.js$/.test(filepath))) {
           continue;
         }
         result.push(filepath);
@@ -422,8 +472,16 @@ class StatusLoader {
 
   load() {
     const dir = path.join(__dirname, '..', 'wpt');
-    const statusFile = path.join(dir, 'status', `${this.path}.json`);
-    const result = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+    let statusFile = path.join(dir, 'status', `${this.path}.json`);
+    let result;
+
+    if (fs.existsSync(statusFile)) {
+      result = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+    } else {
+      statusFile = path.join(dir, 'status', `${this.path}.cjs`);
+      result = require(statusFile);
+    }
+
     this.rules.addRules(result);
 
     const subDir = fixtures.path('wpt', this.path);
@@ -517,6 +575,7 @@ class WPTRunner {
 
   /**
    * @param {WPTTestSpec} spec
+   * @returns {string}
    */
   fullInitScript(spec) {
     const url = new URL(`/${spec.getRelativePath().replace(/\.js$/, '.html')}${spec.variant}`, 'http://wpt');
@@ -551,7 +610,6 @@ class WPTRunner {
     switch (name) {
       case 'Window': {
         this.globalThisInitScripts.push('globalThis.Window = Object.getPrototypeOf(globalThis).constructor;');
-        this.loadLazyGlobals();
         break;
       }
 
@@ -563,32 +621,6 @@ class WPTRunner {
 
       default: throw new Error(`Invalid globalThis type ${name}.`);
     }
-  }
-
-  loadLazyGlobals() {
-    const lazyProperties = [
-      'DOMException',
-      'Performance', 'PerformanceEntry', 'PerformanceMark', 'PerformanceMeasure',
-      'PerformanceObserver', 'PerformanceObserverEntryList', 'PerformanceResourceTiming',
-      'Blob', 'atob', 'btoa',
-      'MessageChannel', 'MessagePort', 'MessageEvent',
-      'EventTarget', 'Event',
-      'AbortController', 'AbortSignal',
-      'performance',
-      'TransformStream', 'TransformStreamDefaultController',
-      'WritableStream', 'WritableStreamDefaultController', 'WritableStreamDefaultWriter',
-      'ReadableStream', 'ReadableStreamDefaultReader',
-      'ReadableStreamBYOBReader', 'ReadableStreamBYOBRequest',
-      'ReadableByteStreamController', 'ReadableStreamDefaultController',
-      'ByteLengthQueuingStrategy', 'CountQueuingStrategy',
-      'TextEncoderStream', 'TextDecoderStream',
-      'CompressionStream', 'DecompressionStream',
-    ];
-    if (Boolean(process.versions.openssl) && !process.env.NODE_SKIP_CRYPTO) {
-      lazyProperties.push('crypto', 'Crypto', 'CryptoKey', 'SubtleCrypto');
-    }
-    const script = lazyProperties.map((name) => `globalThis.${name};`).join('\n');
-    this.globalThisInitScripts.push(script);
   }
 
   // TODO(joyeecheung): work with the upstream to port more tests in .html
@@ -642,14 +674,13 @@ class WPTRunner {
         this.inProgress.add(spec);
         this.workers.set(spec, worker);
 
-        let reportResult;
+        const reportResult = this.report?.getResult(spec);
         worker.on('message', (message) => {
           switch (message.type) {
             case 'result':
-              reportResult ||= this.report?.addResult(`/${relativePath}${spec.variant}`, 'OK');
               return this.resultCallback(spec, message.result, reportResult);
             case 'completion':
-              return this.completionCallback(spec, message.status);
+              return this.completionCallback(spec, message.status, reportResult);
             default:
               throw new Error(`Unexpected message from worker: ${message.type}`);
           }
@@ -661,6 +692,8 @@ class WPTRunner {
             // This can happen normally, for example in timers tests.
             return;
           }
+          // Generate a subtest failure for visibility.
+          // No need to record this synthetic failure with wpt.fyi.
           this.fail(
             spec,
             {
@@ -671,6 +704,8 @@ class WPTRunner {
             },
             kUncaught,
           );
+          // Mark the whole test as failed in wpt.fyi report.
+          reportResult?.finish('ERROR');
           this.inProgress.delete(spec);
         });
 
@@ -680,7 +715,11 @@ class WPTRunner {
 
     process.on('exit', () => {
       for (const spec of this.inProgress) {
+        // No need to record this synthetic failure with wpt.fyi.
         this.fail(spec, { name: 'Incomplete' }, kIncomplete);
+        // Mark the whole test as failed in wpt.fyi report.
+        const reportResult = this.report?.getResult(spec);
+        reportResult?.finish('ERROR');
       }
       inspect.defaultOptions.depth = Infinity;
       // Sorts the rules to have consistent output
@@ -779,7 +818,8 @@ class WPTRunner {
    * Report the status of each specific test case (there could be multiple
    * in one test file).
    * @param {WPTTestSpec} spec
-   * @param {Test} test  The Test object returned by WPT harness
+   * @param {Test} test The Test object returned by WPT harness
+   * @param {ReportResult} reportResult The report result object
    */
   resultCallback(spec, test, reportResult) {
     const status = this.getTestStatus(test.status);
@@ -794,13 +834,29 @@ class WPTRunner {
    * Report the status of each WPT test (one per file)
    * @param {WPTTestSpec} spec
    * @param {object} harnessStatus - The status object returned by WPT harness.
+   * @param {ReportResult} reportResult The report result object
    */
-  completionCallback(spec, harnessStatus) {
+  completionCallback(spec, harnessStatus, reportResult) {
     const status = this.getTestStatus(harnessStatus.status);
 
     // Treat it like a test case failure
     if (status === kTimeout) {
+      // No need to record this synthetic failure with wpt.fyi.
       this.fail(spec, { name: 'WPT testharness timeout' }, kTimeout);
+      // Mark the whole test as TIMEOUT in wpt.fyi report.
+      reportResult?.finish('TIMEOUT');
+    } else if (status !== kPass) {
+      // No need to record this synthetic failure with wpt.fyi.
+      this.fail(spec, {
+        status: status,
+        name: 'WPT test harness error',
+        message: harnessStatus.message,
+        stack: harnessStatus.stack,
+      }, status);
+      // Mark the whole test as ERROR in wpt.fyi report.
+      reportResult?.finish('ERROR');
+    } else {
+      reportResult?.finish();
     }
     this.inProgress.delete(spec);
     // Always force termination of the worker. Some tests allocate resources
@@ -810,22 +866,16 @@ class WPTRunner {
 
   addTestResult(spec, item) {
     let result = this.results[spec.filename];
-    if (!result) {
-      result = this.results[spec.filename] = {};
-    }
+    result ||= this.results[spec.filename] = {};
     if (item.status === kSkip) {
       // { filename: { skip: 'reason' } }
       result[kSkip] = item.reason;
     } else {
       // { filename: { fail: { expected: [ ... ],
       //                      unexpected: [ ... ] } }}
-      if (!result[item.status]) {
-        result[item.status] = {};
-      }
+      result[item.status] ||= {};
       const key = item.expected ? 'expected' : 'unexpected';
-      if (!result[item.status][key]) {
-        result[item.status][key] = [];
-      }
+      result[item.status][key] ||= [];
       const hasName = result[item.status][key].includes(item.name);
       if (!hasName) {
         result[item.status][key].push(item.name);
@@ -892,9 +942,9 @@ class WPTRunner {
         continue;
       }
 
-      const lackingIntl = intlRequirements.isLacking(spec.requires);
-      if (lackingIntl) {
-        this.skip(spec, [ `requires ${lackingIntl}` ]);
+      const lackingSupport = buildRequirements.isLacking(spec.requires);
+      if (lackingSupport) {
+        this.skip(spec, [ `requires ${lackingSupport}` ]);
         continue;
       }
 

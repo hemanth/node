@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_CCTEST_TEST_HELPER_RISCV_H_
-#define V8_CCTEST_TEST_HELPER_RISCV_H_
+#ifndef V8_CCTEST_TEST_HELPER_RISCV64_H_
+#define V8_CCTEST_TEST_HELPER_RISCV64_H_
 
 #include "src/codegen/assembler-inl.h"
 #include "src/codegen/macro-assembler.h"
@@ -254,7 +254,7 @@ void GenAndRunTestForLRSC(T value, Func test_generator) {
   Handle<Code> code =
       Factory::CodeBuilder(isolate, desc, CodeKind::FOR_TESTING).Build();
 #if defined(DEBUG)
-  code->Print();
+  Print(*code);
 #endif
   using INT_T =
       typename std::conditional<sizeof(T) == 4, int32_t, int64_t>::type;
@@ -318,7 +318,7 @@ OUTPUT_T GenAndRunTestForAMO(INPUT_T input0, INPUT_T input1,
   Handle<Code> code =
       Factory::CodeBuilder(isolate, desc, CodeKind::FOR_TESTING).Build();
 #if defined(DEBUG)
-  code->Print();
+  Print(*code);
 #endif
   OUTPUT_T tmp = 0;
   auto f = GeneratedCode<OUTPUT_T(void* base, INPUT_T, INPUT_T)>::FromCode(
@@ -344,4 +344,4 @@ T UseCanonicalNan(T x) {
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_CCTEST_TEST_HELPER_RISCV_H_
+#endif  // V8_CCTEST_TEST_HELPER_RISCV64_H_

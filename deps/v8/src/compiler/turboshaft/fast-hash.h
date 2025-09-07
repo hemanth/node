@@ -7,7 +7,7 @@
 
 #include <tuple>
 
-#include "src/base/functional.h"
+#include "src/base/hashing.h"
 #include "src/base/vector.h"
 
 namespace v8::internal::compiler::turboshaft {
@@ -32,6 +32,13 @@ struct fast_hash {
     } else {
       return base::hash<T>()(v);
     }
+  }
+};
+
+template <typename T1, typename T2>
+struct fast_hash<std::pair<T1, T2>> {
+  size_t operator()(const std::pair<T1, T2>& v) const {
+    return fast_hash_combine(v.first, v.second);
   }
 };
 

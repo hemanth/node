@@ -6,6 +6,7 @@
 #define V8_BUILTINS_BUILTINS_STRING_GEN_H_
 
 #include "src/codegen/code-stub-assembler.h"
+#include "src/objects/string.h"
 
 namespace v8 {
 namespace internal {
@@ -88,6 +89,9 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
       const TNode<RawPtrT> subject_ptr, const TNode<IntPtrT> subject_length,
       const TNode<RawPtrT> search_ptr, const TNode<IntPtrT> start_position);
 
+  TNode<Smi> IndexOfDollarChar(const TNode<Context> context,
+                               const TNode<String> string);
+
  protected:
   enum class StringComparison {
     kLessThan,
@@ -121,12 +125,6 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
   void GenerateStringRelationalComparison(TNode<String> left,
                                           TNode<String> right,
                                           StringComparison op);
-
-  using StringAtAccessor = std::function<TNode<Object>(
-      TNode<String> receiver, TNode<IntPtrT> length, TNode<IntPtrT> index)>;
-
-  const TNode<Smi> IndexOfDollarChar(const TNode<Context> context,
-                                     const TNode<String> string);
 
   TNode<JSArray> StringToArray(TNode<NativeContext> context,
                                TNode<String> subject_string,
@@ -186,7 +184,7 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
   using DescriptorIndexNameValue =
       PrototypeCheckAssembler::DescriptorIndexNameValue;
   void MaybeCallFunctionAtSymbol(
-      const TNode<Context> context, const TNode<Object> object,
+      const TNode<Context> context, const TNode<JSAny> object,
       const TNode<Object> maybe_string, Handle<Symbol> symbol,
       DescriptorIndexNameValue additional_property_to_check,
       const NodeFunction0& regexp_call, const NodeFunction1& generic_call);
@@ -194,7 +192,7 @@ class StringBuiltinsAssembler : public CodeStubAssembler {
  private:
   template <typename T>
   TNode<String> AllocAndCopyStringCharacters(TNode<T> from,
-                                             TNode<Int32T> from_instance_type,
+                                             TNode<BoolT> from_is_one_byte,
                                              TNode<IntPtrT> from_index,
                                              TNode<IntPtrT> character_count);
 };

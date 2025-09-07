@@ -70,8 +70,9 @@ class DeoptimizeCodeThread : public v8::base::Thread {
   const char* source_;
 };
 
-void UnlockForDeoptimization(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::Isolate* isolate = args.GetIsolate();
+void UnlockForDeoptimization(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+  v8::Isolate* isolate = info.GetIsolate();
   // Gets the pointer to the thread that will trigger the deoptimization of the
   // code.
   DeoptimizeCodeThread* deoptimizer =
@@ -91,8 +92,9 @@ void UnlockForDeoptimization(const v8::FunctionCallbackInfo<v8::Value>& args) {
 }
 
 void UnlockForDeoptimizationIfReady(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::Isolate* isolate = args.GetIsolate();
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  CHECK(i::ValidateCallbackInfo(info));
+  v8::Isolate* isolate = info.GetIsolate();
   bool* ready_to_deoptimize = reinterpret_cast<bool*>(isolate->GetData(1));
   if (*ready_to_deoptimize) {
     // The test should enter here only once, so put the flag back to false.
@@ -524,7 +526,7 @@ class SeparateIsolatesLocksNonexclusiveThread : public JoinableThread {
 // Run parallel threads that lock and access different isolates in parallel
 TEST(SeparateIsolatesLocksNonexclusive) {
   v8_flags.always_turbofan = false;
-#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_S390
+#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_S390X
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -609,7 +611,7 @@ class LockerUnlockerThread : public JoinableThread {
 // Use unlocker inside of a Locker, multiple threads.
 TEST(LockerUnlocker) {
   v8_flags.always_turbofan = false;
-#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_S390
+#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_S390X
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -667,7 +669,7 @@ class LockTwiceAndUnlockThread : public JoinableThread {
 // Use Unlocker inside two Lockers.
 TEST(LockTwiceAndUnlock) {
   v8_flags.always_turbofan = false;
-#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_S390
+#if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_S390X
   const int kNThreads = 50;
 #else
   const int kNThreads = 100;
@@ -709,10 +711,11 @@ class LockAndUnlockDifferentIsolatesThread : public JoinableThread {
       thread.reset(new LockIsolateAndCalculateFibSharedContextThread(isolate1_,
                                                                      context1));
     }
-    v8::Locker lock2(isolate2_);
-    CHECK(v8::Locker::IsLocked(isolate1_));
-    CHECK(v8::Locker::IsLocked(isolate2_));
     {
+      v8::Unlocker unlock1(isolate1_);
+      v8::Locker lock2(isolate2_);
+      CHECK(!v8::Locker::IsLocked(isolate1_));
+      CHECK(v8::Locker::IsLocked(isolate2_));
       v8::Isolate::Scope isolate_scope(isolate2_);
       v8::HandleScope handle_scope(isolate2_);
       v8::Local<v8::Context> context2 = v8::Context::New(isolate2_);
@@ -720,7 +723,6 @@ class LockAndUnlockDifferentIsolatesThread : public JoinableThread {
         v8::Context::Scope context_scope(context2);
         CalcFibAndCheck(context2);
       }
-      v8::Unlocker unlock1(isolate1_);
       CHECK(!v8::Locker::IsLocked(isolate1_));
       CHECK(v8::Locker::IsLocked(isolate2_));
       v8::Context::Scope context_scope(context2);
@@ -859,19 +861,18 @@ TEST(LockUnlockLockDefaultIsolateMultithreaded) {
 #else
   const int kNThreads = 100;
 #endif
-  Local<v8::Context> context;
   std::vector<JoinableThread*> threads;
   threads.reserve(kNThreads);
+  CcTest::isolate()->Exit();
   {
     v8::Locker locker_(CcTest::isolate());
     v8::Isolate::Scope isolate_scope(CcTest::isolate());
     v8::HandleScope handle_scope(CcTest::isolate());
-    context = v8::Context::New(CcTest::isolate());
+    Local<v8::Context> context = v8::Context::New(CcTest::isolate());
     for (int i = 0; i < kNThreads; i++) {
       threads.push_back(new LockUnlockLockDefaultIsolateThread(context));
     }
   }
-  CcTest::isolate()->Exit();
   StartJoinAndDeleteThreads(threads);
   CcTest::isolate()->Enter();
 }
@@ -935,8 +936,6 @@ class IsolateGenesisThread : public JoinableThread {
 // http://code.google.com/p/v8/issues/detail?id=1821
 TEST(ExtensionsRegistration) {
 #if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_MIPS
-  const int kNThreads = 10;
-#elif V8_TARGET_ARCH_S390 && V8_TARGET_ARCH_32_BIT
   const int kNThreads = 10;
 #else
   const int kNThreads = 40;

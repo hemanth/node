@@ -6,6 +6,7 @@
 #include "src/base/strings.h"
 #include "src/objects/js-array-buffer-inl.h"
 #include "src/objects/js-array-buffer.h"
+#include "test/cctest/heap/heap-utils.h"
 #include "test/cctest/test-api.h"
 
 using ::v8::Array;
@@ -16,8 +17,8 @@ using ::v8::Value;
 namespace {
 
 void CheckElementValue(i::Isolate* isolate, int expected,
-                       i::Handle<i::Object> obj, int offset) {
-  i::Object element =
+                       i::DirectHandle<i::JSAny> obj, int offset) {
+  i::Tagged<i::Object> element =
       *i::Object::GetElement(isolate, obj, offset).ToHandleChecked();
   CHECK_EQ(expected, i::Smi::ToInt(element));
 }
@@ -28,7 +29,7 @@ void ObjectWithExternalArrayTestHelper(Local<Context> context,
                                        int element_count,
                                        i::ExternalArrayType array_type,
                                        int64_t low, int64_t high) {
-  i::Handle<i::JSTypedArray> jsobj = v8::Utils::OpenHandle(*obj);
+  i::DirectHandle<i::JSTypedArray> jsobj = v8::Utils::OpenDirectHandle(*obj);
   v8::Isolate* v8_isolate = context->GetIsolate();
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(v8_isolate);
   obj->Set(context, v8_str("field"), v8::Int32::New(v8_isolate, 1503))
@@ -139,7 +140,7 @@ void ObjectWithExternalArrayTestHelper(Local<Context> context,
       "}"
       "sum;");
   // Force GC to trigger verification.
-  CcTest::CollectAllGarbage();
+  i::heap::InvokeMajorGC(CcTest::heap());
   CHECK_EQ(28, result->Int32Value(context).FromJust());
 
   // Make sure out-of-range loads do not throw.
@@ -177,8 +178,8 @@ void ObjectWithExternalArrayTestHelper(Local<Context> context,
   CHECK_EQ(0, result->Int32Value(context).FromJust());
   if (array_type == i::kExternalFloat64Array ||
       array_type == i::kExternalFloat32Array) {
-    CHECK(std::isnan(
-        i::Object::GetElement(isolate, jsobj, 7).ToHandleChecked()->Number()));
+    CHECK(std::isnan(i::Object::NumberValue(Cast<i::Number>(
+        *i::Object::GetElement(isolate, jsobj, 7).ToHandleChecked()))));
   } else {
     CheckElementValue(isolate, 0, jsobj, 7);
   }
@@ -189,9 +190,9 @@ void ObjectWithExternalArrayTestHelper(Local<Context> context,
       "}"
       "ext_array[6];");
   CHECK_EQ(2, result->Int32Value(context).FromJust());
-  CHECK_EQ(2, static_cast<int>(i::Object::GetElement(isolate, jsobj, 6)
-                                   .ToHandleChecked()
-                                   ->Number()));
+  CHECK_EQ(2,
+           static_cast<int>(i::Object::NumberValue(Cast<i::Number>(
+               *i::Object::GetElement(isolate, jsobj, 6).ToHandleChecked()))));
 
   if (array_type != i::kExternalFloat32Array &&
       array_type != i::kExternalFloat64Array) {
@@ -387,7 +388,7 @@ void TypedArrayTestHelper(i::ExternalArrayType array_type, int64_t low,
 
   // TODO(v8:11111): Use API functions for testing these, once they're exposed
   // via the API.
-  i::Handle<i::JSTypedArray> i_ta = v8::Utils::OpenHandle(*ta);
+  i::DirectHandle<i::JSTypedArray> i_ta = v8::Utils::OpenDirectHandle(*ta);
   CHECK(!i_ta->is_length_tracking());
   CHECK(!i_ta->is_backed_by_rab());
 }
@@ -455,67 +456,58 @@ THREADED_TEST(DataView) {
 
   // TODO(v8:11111): Use API functions for testing these, once they're exposed
   // via the API.
-  i::Handle<i::JSDataViewOrRabGsabDataView> i_dv = v8::Utils::OpenHandle(*dv);
+  i::DirectHandle<i::JSDataViewOrRabGsabDataView> i_dv =
+      v8::Utils::OpenDirectHandle(*dv);
   CHECK(!i_dv->is_length_tracking());
   CHECK(!i_dv->is_backed_by_rab());
 }
 
 THREADED_TEST(SharedUint8Array) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<uint8_t, v8::Uint8Array, v8::SharedArrayBuffer>(
       i::kExternalUint8Array, 0, 0xFF);
 }
 
 THREADED_TEST(SharedInt8Array) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<int8_t, v8::Int8Array, v8::SharedArrayBuffer>(
       i::kExternalInt8Array, -0x80, 0x7F);
 }
 
 THREADED_TEST(SharedUint16Array) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<uint16_t, v8::Uint16Array, v8::SharedArrayBuffer>(
       i::kExternalUint16Array, 0, 0xFFFF);
 }
 
 THREADED_TEST(SharedInt16Array) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<int16_t, v8::Int16Array, v8::SharedArrayBuffer>(
       i::kExternalInt16Array, -0x8000, 0x7FFF);
 }
 
 THREADED_TEST(SharedUint32Array) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<uint32_t, v8::Uint32Array, v8::SharedArrayBuffer>(
       i::kExternalUint32Array, 0, UINT_MAX);
 }
 
 THREADED_TEST(SharedInt32Array) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<int32_t, v8::Int32Array, v8::SharedArrayBuffer>(
       i::kExternalInt32Array, INT_MIN, INT_MAX);
 }
 
 THREADED_TEST(SharedFloat32Array) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<float, v8::Float32Array, v8::SharedArrayBuffer>(
       i::kExternalFloat32Array, -500, 500);
 }
 
 THREADED_TEST(SharedFloat64Array) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<double, v8::Float64Array, v8::SharedArrayBuffer>(
       i::kExternalFloat64Array, -500, 500);
 }
 
 THREADED_TEST(SharedUint8ClampedArray) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   TypedArrayTestHelper<uint8_t, v8::Uint8ClampedArray, v8::SharedArrayBuffer>(
       i::kExternalUint8ClampedArray, 0, 0xFF);
 }
 
 THREADED_TEST(SharedDataView) {
-  i::v8_flags.harmony_sharedarraybuffer = true;
   const int kSize = 50;
 
   LocalContext env;
@@ -532,7 +524,8 @@ THREADED_TEST(SharedDataView) {
 
   // TODO(v8:11111): Use API functions for testing these, once they're exposed
   // via the API.
-  i::Handle<i::JSDataViewOrRabGsabDataView> i_dv = v8::Utils::OpenHandle(*dv);
+  i::DirectHandle<i::JSDataViewOrRabGsabDataView> i_dv =
+      v8::Utils::OpenDirectHandle(*dv);
   CHECK(!i_dv->is_length_tracking());
   CHECK(!i_dv->is_backed_by_rab());
 }
@@ -592,6 +585,108 @@ TEST(InternalFieldsOnDataView) {
   }
 }
 
+TEST(DetachedArrayBufferViewsPretendOffsetAndLengthAreZero) {
+  LocalContext env;
+  v8::Isolate* isolate = env->GetIsolate();
+  v8::HandleScope scope(isolate);
+  v8::Local<v8::Context> context = env.local();
+  Context::Scope context_scope(context);
+
+  v8::Local<v8::ArrayBuffer> buffer = v8::Local<v8::ArrayBuffer>::Cast(
+      CompileRun("let ab = new ArrayBuffer(100, {maxByteLength: 200}); ab"));
+
+  v8::Local<v8::Uint16Array> fixed_length_ta =
+      v8::Uint16Array::New(buffer, 2, 1);
+  // Length-tracking TypedArrays cannot (yet) be constructed via the API.
+  v8::Local<v8::Uint16Array> length_tracking_ta =
+      v8::Local<v8::Uint16Array>::Cast(CompileRun("new Uint16Array(ab, 2)"));
+
+  // RAB/GSAB-backed DataViews cannot (yet) be constructed via the API.
+  v8::Local<v8::DataView> fixed_length_dv =
+      v8::Local<v8::DataView>::Cast(CompileRun("new DataView(ab, 1, 1)"));
+  v8::Local<v8::DataView> length_tracking_dv =
+      v8::Local<v8::DataView>::Cast(CompileRun("new DataView(ab, 1)"));
+
+  CHECK_EQ(2, fixed_length_ta->ByteOffset());
+  CHECK_EQ(2, length_tracking_ta->ByteOffset());
+  CHECK_EQ(1, fixed_length_dv->ByteOffset());
+  CHECK_EQ(1, length_tracking_dv->ByteOffset());
+
+  CHECK_EQ(2, fixed_length_ta->ByteLength());
+  CHECK_EQ(98, length_tracking_ta->ByteLength());
+  CHECK_EQ(1, fixed_length_dv->ByteLength());
+  CHECK_EQ(99, length_tracking_dv->ByteLength());
+
+  CHECK_EQ(1, fixed_length_ta->Length());
+  CHECK_EQ(49, length_tracking_ta->Length());
+
+  buffer->Detach({}).Check();
+
+  CHECK_EQ(0, fixed_length_ta->ByteOffset());
+  CHECK_EQ(0, length_tracking_ta->ByteOffset());
+  CHECK_EQ(0, fixed_length_dv->ByteOffset());
+  CHECK_EQ(0, length_tracking_dv->ByteOffset());
+
+  CHECK_EQ(0, fixed_length_ta->ByteLength());
+  CHECK_EQ(0, length_tracking_ta->ByteLength());
+  CHECK_EQ(0, fixed_length_dv->ByteLength());
+  CHECK_EQ(0, length_tracking_dv->ByteLength());
+
+  CHECK_EQ(0, fixed_length_ta->Length());
+  CHECK_EQ(0, length_tracking_ta->Length());
+}
+
+TEST(OutOfBoundsArrayBufferViewsPretendOffsetAndLengthAreZero) {
+  LocalContext env;
+  v8::Isolate* isolate = env->GetIsolate();
+  v8::HandleScope scope(isolate);
+  v8::Local<v8::Context> context = env.local();
+  Context::Scope context_scope(context);
+
+  v8::Local<v8::ArrayBuffer> buffer = v8::Local<v8::ArrayBuffer>::Cast(
+      CompileRun("let ab = new ArrayBuffer(100, {maxByteLength: 200}); ab"));
+
+  v8::Local<v8::Uint16Array> fixed_length_ta =
+      v8::Uint16Array::New(buffer, 2, 1);
+  // Length-tracking TypedArrays cannot (yet) be constructed via the API.
+  v8::Local<v8::Uint16Array> length_tracking_ta =
+      v8::Local<v8::Uint16Array>::Cast(CompileRun("new Uint16Array(ab, 2)"));
+
+  // RAB/GSAB-backed DataViews cannot (yet) be constructed via the API.
+  v8::Local<v8::DataView> fixed_length_dv =
+      v8::Local<v8::DataView>::Cast(CompileRun("new DataView(ab, 1, 1)"));
+  v8::Local<v8::DataView> length_tracking_dv =
+      v8::Local<v8::DataView>::Cast(CompileRun("new DataView(ab, 1)"));
+
+  CHECK_EQ(2, fixed_length_ta->ByteOffset());
+  CHECK_EQ(2, length_tracking_ta->ByteOffset());
+  CHECK_EQ(1, fixed_length_dv->ByteOffset());
+  CHECK_EQ(1, length_tracking_dv->ByteOffset());
+
+  CHECK_EQ(2, fixed_length_ta->ByteLength());
+  CHECK_EQ(98, length_tracking_ta->ByteLength());
+  CHECK_EQ(1, fixed_length_dv->ByteLength());
+  CHECK_EQ(99, length_tracking_dv->ByteLength());
+
+  CHECK_EQ(1, fixed_length_ta->Length());
+  CHECK_EQ(49, length_tracking_ta->Length());
+
+  CompileRun("ab.resize(0)");
+
+  CHECK_EQ(0, fixed_length_ta->ByteOffset());
+  CHECK_EQ(0, length_tracking_ta->ByteOffset());
+  CHECK_EQ(0, fixed_length_dv->ByteOffset());
+  CHECK_EQ(0, length_tracking_dv->ByteOffset());
+
+  CHECK_EQ(0, fixed_length_ta->ByteLength());
+  CHECK_EQ(0, length_tracking_ta->ByteLength());
+  CHECK_EQ(0, fixed_length_dv->ByteLength());
+  CHECK_EQ(0, length_tracking_dv->ByteLength());
+
+  CHECK_EQ(0, fixed_length_ta->Length());
+  CHECK_EQ(0, length_tracking_ta->Length());
+}
+
 namespace {
 void TestOnHeapHasBuffer(const char* array_name, size_t elem_size) {
   LocalContext env;
@@ -613,8 +708,8 @@ void TestOnHeapHasBuffer(const char* array_name, size_t elem_size) {
     CHECK(!typed_array->HasBuffer());
 
     // Get the buffer and check its length.
-    i::Handle<i::JSTypedArray> i_typed_array =
-        v8::Utils::OpenHandle(*typed_array);
+    i::DirectHandle<i::JSTypedArray> i_typed_array =
+        v8::Utils::OpenDirectHandle(*typed_array);
     auto i_array_buffer1 = i_typed_array->GetBuffer();
     CHECK_EQ(size, i_array_buffer1->byte_length());
     CHECK(typed_array->HasBuffer());
@@ -644,8 +739,8 @@ void TestOffHeapHasBuffer(const char* array_name, size_t elem_size) {
     CHECK(typed_array->HasBuffer());
 
     // Get the buffer and check its length.
-    i::Handle<i::JSTypedArray> i_typed_array =
-        v8::Utils::OpenHandle(*typed_array);
+    i::DirectHandle<i::JSTypedArray> i_typed_array =
+        v8::Utils::OpenDirectHandle(*typed_array);
     auto i_array_buffer1 = i_typed_array->GetBuffer();
     CHECK_EQ(length * elem_size, i_array_buffer1->byte_length());
 

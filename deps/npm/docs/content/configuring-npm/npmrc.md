@@ -19,17 +19,20 @@ For a list of available configuration options, see
 
 The four relevant files are:
 
-* per-project config file (/path/to/my/project/.npmrc)
-* per-user config file (~/.npmrc)
-* global config file ($PREFIX/etc/npmrc)
-* npm builtin config file (/path/to/npm/npmrc)
+* per-project config file (`/path/to/my/project/.npmrc`)
+* per-user config file (`~/.npmrc`)
+* global config file (`$PREFIX/etc/npmrc`)
+* npm builtin config file (`/path/to/npm/npmrc`)
 
 All npm config files are an ini-formatted list of `key = value` parameters.
-Environment variables can be replaced using `${VARIABLE_NAME}`. For
+Environment variables can be replaced using `${VARIABLE_NAME}`. By default
+if the variable is not defined, it is left unreplaced. By adding `?` after
+variable name they can be forced to evaluate to an empty string instead. For
 example:
 
 ```bash
-prefix = ${HOME}/.npm-packages
+cache = ${HOME}/.npm-packages
+node-options = "${NODE_OPTIONS?} --use-system-ca"
 ```
 
 Each of these files is loaded, and config options are resolved in priority
@@ -103,7 +106,7 @@ The full list is:
  - `username`
  - `_password`
  - `email`
- - `certfile` (path to certificate file)
+ - `cafile` (path to certificate authority file)
  - `keyfile` (path to key file)
 
 In order to scope these values, they must be prefixed by a URI fragment.
@@ -120,10 +123,13 @@ _authToken=MYTOKEN
 @myorg:registry=https://somewhere-else.com/myorg
 @another:registry=https://somewhere-else.com/another
 //registry.npmjs.org/:_authToken=MYTOKEN
+
 ; would apply to both @myorg and @another
-; //somewhere-else.com/:_authToken=MYTOKEN
+//somewhere-else.com/:_authToken=MYTOKEN
+
 ; would apply only to @myorg
 //somewhere-else.com/myorg/:_authToken=MYTOKEN1
+
 ; would apply only to @another
 //somewhere-else.com/another/:_authToken=MYTOKEN2
 ```

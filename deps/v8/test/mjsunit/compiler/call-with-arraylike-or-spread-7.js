@@ -21,6 +21,7 @@
 (function () {
   "use strict";
   var log_got_interpreted = true;
+  %NeverOptimizeFunction(assertEquals);
 
   function log(a) {
     assertEquals(1, arguments.length);
@@ -53,9 +54,9 @@
   });
 
   // Now we expect the value yielded by the generator.
+  assertUnoptimized(foo);
   assertEquals(42, foo());
   assertFalse(log_got_interpreted);
-  assertUnoptimized(foo);
 
   // Recompile 'foo'.
   %PrepareFunctionForOptimization(foo);

@@ -5,6 +5,7 @@
       'src/fd_table.c',
       'src/path_resolver.c',
       'src/poll_oneoff.c',
+      'src/sync_helpers.c',
       'src/uv_mapping.c',
       'src/uvwasi.c',
       'src/wasi_rights.c',
@@ -27,7 +28,7 @@
         'include_dirs': ['include']
       },
       'conditions': [
-        [ 'OS=="linux"', {
+        [ 'OS=="linux" or OS=="openharmony"', {
           'defines': [
             '_GNU_SOURCE',
             '_POSIX_C_SOURCE=200112',

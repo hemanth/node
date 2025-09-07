@@ -1,4 +1,4 @@
-declare function InternalBinding(binding: 'constants'): {
+export interface ConstantsBinding {
   os: {
     UV_UDP_REUSEADDR: 4;
     dlopen: {
@@ -129,6 +129,11 @@ declare function InternalBinding(binding: 'constants'): {
       PRIORITY_HIGH: -14;
       PRIORITY_HIGHEST: -20;
     };
+  };
+  sqlite: {
+    SQLITE_CHANGESET_OMIT: 0;
+    SQLITE_CHANGESET_REPLACE: 1;
+    SQLITE_CHANGESET_ABORT: 2;
   };
   fs: {
     UV_FS_SYMLINK_DIR: 1;
@@ -280,6 +285,11 @@ declare function InternalBinding(binding: 'constants'): {
     UNZIP: 7;
     BROTLI_DECODE: 8;
     BROTLI_ENCODE: 9;
+    ZSTD_COMPRESS: 10;
+    ZSTD_DECOMPRESS: 11;
+    ZSTD_e_continue: 0;
+    ZSTD_e_flush: 1;
+    ZSTD_e_end: 2;
     Z_MIN_WINDOWBITS: 8;
     Z_MAX_WINDOWBITS: 15;
     Z_DEFAULT_WINDOWBITS: 15;
@@ -382,4 +392,8 @@ declare function InternalBinding(binding: 'constants'): {
     TRACE_EVENT_PHASE_LEAVE_CONTEXT: 41;
     TRACE_EVENT_PHASE_LINK_IDS: 61;
   };
-};
+  internal: {
+    EXTENSIONLESS_FORMAT_JAVASCRIPT: 0;
+    EXTENSIONLESS_FORMAT_WASM: 1;
+  };
+}

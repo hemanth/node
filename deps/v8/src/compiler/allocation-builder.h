@@ -62,8 +62,13 @@ class AllocationBuilder final {
       AllocationType allocation = AllocationType::kYoung);
 
   // Compound store of a constant into a field.
-  void Store(const FieldAccess& access, const ObjectRef& value) {
-    Store(access, jsgraph()->Constant(value, broker_));
+  void Store(const FieldAccess& access, ObjectRef value) {
+    if (access.machine_type == MachineType::IndirectPointer()) {
+      Store(access,
+            jsgraph()->TrustedHeapConstant(value.AsHeapObject().object()));
+    } else {
+      Store(access, jsgraph()->ConstantNoHole(value, broker_));
+    }
   }
 
   void FinishAndChange(Node* node) {
@@ -81,7 +86,7 @@ class AllocationBuilder final {
  protected:
   JSGraph* jsgraph() { return jsgraph_; }
   Isolate* isolate() const { return jsgraph_->isolate(); }
-  Graph* graph() { return jsgraph_->graph(); }
+  TFGraph* graph() { return jsgraph_->graph(); }
   CommonOperatorBuilder* common() { return jsgraph_->common(); }
   SimplifiedOperatorBuilder* simplified() { return jsgraph_->simplified(); }
 

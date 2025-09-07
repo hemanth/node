@@ -5,115 +5,28 @@
 #ifndef V8_MAGLEV_MAGLEV_IR_INL_H_
 #define V8_MAGLEV_MAGLEV_IR_INL_H_
 
-#include "src/maglev/maglev-interpreter-frame-state.h"
 #include "src/maglev/maglev-ir.h"
+// Include the non-inl header before the rest of the headers.
+
+#include "src/interpreter/bytecode-register.h"
+#include "src/maglev/maglev-deopt-frame-visitor.h"
+#include "src/sandbox/js-dispatch-table-inl.h"
 
 namespace v8 {
 namespace internal {
 namespace maglev {
 
-namespace detail {
-
-template <typename Function>
-void DeepForEachInputImpl(const DeoptFrame& frame,
-                          InputLocation* input_locations, int& index,
-                          Function&& f) {
-  if (frame.parent()) {
-    DeepForEachInputImpl(*frame.parent(), input_locations, index, f);
-  }
-  switch (frame.type()) {
-    case DeoptFrame::FrameType::kInterpretedFrame:
-      frame.as_interpreted().frame_state()->ForEachValue(
-          frame.as_interpreted().unit(),
-          [&](ValueNode*& node, interpreter::Register reg) {
-            f(node, &input_locations[index++]);
-          });
-      break;
-    case DeoptFrame::FrameType::kInlinedArgumentsFrame: {
-      for (ValueNode*& node : frame.as_inlined_arguments().arguments()) {
-        f(node, &input_locations[index++]);
-      }
-      break;
-    }
-    case DeoptFrame::FrameType::kBuiltinContinuationFrame:
-      for (ValueNode*& node : frame.as_builtin_continuation().parameters()) {
-        f(node, &input_locations[index++]);
-      }
-      f(frame.as_builtin_continuation().context(), &input_locations[index++]);
-      break;
-  }
-}
-
-template <typename Function>
-void DeepForEachInput(const EagerDeoptInfo* deopt_info, Function&& f) {
-  int index = 0;
-  DeepForEachInputImpl(deopt_info->top_frame(), deopt_info->input_locations(),
-                       index, f);
-}
-
-template <typename Function>
-void DeepForEachInput(const LazyDeoptInfo* deopt_info, Function&& f) {
-  int index = 0;
-  InputLocation* input_locations = deopt_info->input_locations();
-  const DeoptFrame& top_frame = deopt_info->top_frame();
-  if (top_frame.parent()) {
-    DeepForEachInputImpl(*top_frame.parent(), input_locations, index, f);
-  }
-  // Handle the top-of-frame info separately, since we have to skip the result
-  // location.
-  switch (top_frame.type()) {
-    case DeoptFrame::FrameType::kInterpretedFrame:
-      top_frame.as_interpreted().frame_state()->ForEachValue(
-          top_frame.as_interpreted().unit(),
-          [&](ValueNode*& node, interpreter::Register reg) {
-            // Skip over the result location since it is irrelevant for lazy
-            // deopts (unoptimized code will recreate the result).
-            if (deopt_info->IsResultRegister(reg)) return;
-            f(node, &input_locations[index++]);
-          });
-      break;
-    case DeoptFrame::FrameType::kInlinedArgumentsFrame:
-      // The inlined arguments frame can never be the top frame.
-      UNREACHABLE();
-    case DeoptFrame::FrameType::kBuiltinContinuationFrame:
-      for (ValueNode*& node :
-           top_frame.as_builtin_continuation().parameters()) {
-        f(node, &input_locations[index++]);
-      }
-      f(top_frame.as_builtin_continuation().context(),
-        &input_locations[index++]);
-      break;
-  }
-}
-
-}  // namespace detail
-
-inline void AddDeoptRegistersToSnapshot(RegisterSnapshot* snapshot,
-                                        const EagerDeoptInfo* deopt_info) {
-  detail::DeepForEachInput(deopt_info, [&](ValueNode* node,
-                                           InputLocation* input) {
-    if (!input->IsAnyRegister()) return;
-    if (input->IsDoubleRegister()) {
-      snapshot->live_double_registers.set(input->AssignedDoubleRegister());
-    } else {
-      snapshot->live_registers.set(input->AssignedGeneralRegister());
-      if (node->is_tagged()) {
-        snapshot->live_tagged_registers.set(input->AssignedGeneralRegister());
-      }
-    }
-  });
-}
-
 #ifdef DEBUG
 inline RegList GetGeneralRegistersUsedAsInputs(
     const EagerDeoptInfo* deopt_info) {
   RegList regs;
-  detail::DeepForEachInput(deopt_info,
-                           [&regs](ValueNode* value, InputLocation* input) {
-                             if (input->IsGeneralRegister()) {
-                               regs.set(input->AssignedGeneralRegister());
-                             }
-                           });
+  InputLocation* input = deopt_info->input_locations();
+  deopt_info->ForEachInput([&regs, &input](ValueNode* value) {
+    if (input->IsGeneralRegister()) {
+      regs.set(input->AssignedGeneralRegister());
+    }
+    input++;
+  });
   return regs;
 }
 #endif  // DEBUG
@@ -141,6 +54,7 @@ inline void DefineAsFixed(Node* node, Register reg) {
                                 reg.code(), kNoVreg);
 }
 
+// TODO(v8:7700): Create generic DefineSameAs(..., int input).
 inline void DefineSameAsFirst(Node* node) {
   node->result().SetUnallocated(kNoVreg, 0);
 }
@@ -167,6 +81,33 @@ inline void UseFixed(Input& input, DoubleRegister reg) {
   input.SetUnallocated(compiler::UnallocatedOperand::FIXED_FP_REGISTER,
                        reg.code(), kNoVreg);
   input.node()->SetHint(input.operand());
+}
+
+CallKnownJSFunction::CallKnownJSFunction(
+    uint64_t bitfield,
+#ifdef V8_ENABLE_LEAPTIERING
+    JSDispatchHandle dispatch_handle,
+#endif
+    compiler::SharedFunctionInfoRef shared_function_info, ValueNode* closure,
+    ValueNode* context, ValueNode* receiver, ValueNode* new_target)
+    : Base(bitfield),
+#ifdef V8_ENABLE_LEAPTIERING
+      dispatch_handle_(dispatch_handle),
+#endif
+      shared_function_info_(shared_function_info),
+      expected_parameter_count_(
+#ifdef V8_ENABLE_LEAPTIERING
+          IsolateGroup::current()->js_dispatch_table()->GetParameterCount(
+              dispatch_handle)
+#else
+          shared_function_info
+              .internal_formal_parameter_count_with_receiver_deprecated()
+#endif
+      ) {
+  set_input(kClosureIndex, closure);
+  set_input(kContextIndex, context);
+  set_input(kReceiverIndex, receiver);
+  set_input(kNewTargetIndex, new_target);
 }
 
 }  // namespace maglev

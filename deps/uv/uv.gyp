@@ -51,6 +51,7 @@
       'src/strscpy.h',
       'src/strtok.c',
       'src/strtok.h',
+      'src/thread-common.c',
       'src/threadpool.c',
       'src/timer.c',
       'src/uv-data-getter-setters.c',
@@ -101,7 +102,6 @@
       'include/uv/bsd.h',
       'include/uv/aix.h',
       'src/unix/async.c',
-      'src/unix/atomic-ops.h',
       'src/unix/core.c',
       'src/unix/dl.c',
       'src/unix/fs.c',
@@ -115,7 +115,6 @@
       'src/unix/process.c',
       'src/unix/random-devurandom.c',
       'src/unix/signal.c',
-      'src/unix/spinlock.h',
       'src/unix/stream.c',
       'src/unix/tcp.c',
       'src/unix/thread.c',
@@ -125,6 +124,7 @@
     'uv_sources_apple': [
       'src/unix/darwin.c',
       'src/unix/fsevents.c',
+      'src/unix/darwin-syscalls.h',
       'src/unix/darwin-proctitle.c',
       'src/unix/random-getentropy.c',
     ],
@@ -137,7 +137,6 @@
     'uv_sources_android': [
       'src/unix/linux.c',
       'src/unix/procfs-exepath.c',
-      'src/unix/pthread-fixes.c',
       'src/unix/random-getentropy.c',
       'src/unix/random-getrandom.c',
       'src/unix/random-sysctl-linux.c',
@@ -174,7 +173,7 @@
         ],
         'include_dirs': [ 'include' ],
         'conditions': [
-          ['OS == "linux"', {
+          ['OS == "linux" or OS=="openharmony"', {
             'defines': [ '_POSIX_C_SOURCE=200112' ],
           }],
         ],
@@ -191,7 +190,7 @@
           '-Wno-unused-parameter',
           '-Wstrict-prototypes',
         ],
-        'OTHER_CFLAGS': [ '-g', '--std=gnu89' ],
+        'OTHER_CFLAGS': [ '-g', '--std=gnu11' ],
       },
       'conditions': [
         [ 'OS=="win"', {
@@ -221,7 +220,6 @@
             '<@(uv_sources_posix)',
           ],
           'link_settings': {
-            'libraries': [ '-lm' ],
             'conditions': [
               ['OS=="solaris"', {
                 'ldflags': [ '-pthreads' ],
@@ -231,6 +229,11 @@
               }],
               ['OS != "solaris" and OS != "android" and OS != "zos"', {
                 'ldflags': [ '-pthread' ],
+              }],
+              ['OS!="mac"', {
+                'libraries': [
+                  '-lm'
+                ],
               }],
             ],
           },
@@ -252,14 +255,14 @@
             }],
           ],
         }],
-        [ 'OS in "linux mac ios android zos"', {
+        [ 'OS in "linux mac ios android zos openharmony"', {
           'sources': [ 'src/unix/proctitle.c' ],
         }],
         [ 'OS != "zos"', {
           'cflags': [
             '-fvisibility=hidden',
             '-g',
-            '--std=gnu89',
+            '--std=gnu11',
             '-Wall',
             '-Wextra',
             '-Wno-unused-parameter',
@@ -276,7 +279,7 @@
             '_DARWIN_UNLIMITED_SELECT=1',
           ]
         }],
-        [ 'OS=="linux"', {
+        [ 'OS=="linux" or OS=="openharmony"', {
           'defines': [ '_GNU_SOURCE' ],
           'sources': [
             '<@(uv_sources_linux)',
@@ -399,7 +402,6 @@
         }],
         ['OS=="zos"', {
           'sources': [
-            'src/unix/pthread-fixes.c',
             'src/unix/os390.c',
             'src/unix/os390-syscalls.c'
           ]

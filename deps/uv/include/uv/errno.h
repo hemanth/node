@@ -468,4 +468,16 @@
 # define UV__ENODATA (-4024)
 #endif
 
+#if defined(EUNATCH) && !defined(_WIN32)
+# define UV__EUNATCH UV__ERR(EUNATCH)
+#else
+# define UV__EUNATCH (-4023)
+#endif
+
+#if defined(ENOEXEC) && !defined(_WIN32)
+# define UV__ENOEXEC UV__ERR(ENOEXEC)
+#else
+# define UV__ENOEXEC (-4022)
+#endif
+
 #endif /* UV_ERRNO_H_ */
